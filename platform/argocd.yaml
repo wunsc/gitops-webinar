@@ -1,0 +1,63 @@
+# platform/argocd.yaml
+#
+# Dedicated namespace-scoped Argo CD instance for the demo (Option B).
+# The cluster's default instance is deliberately disabled by the workshop
+# provisioning (DISABLE_DEFAULT_ARGOCD_INSTANCE=true) and the only other
+# instance is the live CTF engine — so the demo brings its own.
+#
+# Namespace-scoped means: no cluster RBAC is created for it, and it can only
+# deploy into namespaces labeled argocd.argoproj.io/managed-by:
+# gitops-demo-argocd (see platform/namespaces.yaml).
+#
+# Admin login: user `admin`, password in secret `gitops-demo-cluster`
+# (key admin.password) in this namespace.
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: gitops-demo
+  namespace: gitops-demo-argocd
+spec:
+  # ApplicationSet controller must be present — beat 1 is the git directory
+  # generator. Resources kept modest: nine tiny Applications.
+  applicationSet:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  controller:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+  redis:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+  repo:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+  server:
+    # TLS terminates at the route (edge); the server itself runs HTTP.
+    insecure: true
+    route:
+      enabled: true
+      tls:
+        insecureEdgeTerminationPolicy: Redirect
+        termination: edge
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi

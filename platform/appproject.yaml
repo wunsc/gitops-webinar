@@ -1,0 +1,88 @@
+# platform/appproject.yaml
+#
+# Carries two of the four demo beats:
+#   - orphanedResources.warn  -> beat 2: undeclared resources surface on their own
+#   - syncWindows (added in Phase 2b, one variable at a time) -> beat 3: enforced freeze
+#
+# Lives in gitops-demo-argocd (Option B), the namespace of the demo instance.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-demo
+  namespace: gitops-demo-argocd
+spec:
+  description: Webinar demo — production state at scale
+  sourceRepos:
+    - 'https://gitlab-gitops-demo-gitlab.apps.ocp.tt95r.sandbox1653.opentlc.com/root/gitops-webinar-demo.git'
+  destinations:
+    - namespace: 'gitops-demo-*'
+      server: https://kubernetes.default.svc
+  # Deliberately empty — namespaced resources only. The instance is
+  # namespace-scoped and could not apply cluster resources anyway.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  # Beat 2. warn (not error): coverage checking runs continuously without
+  # turning every legacy object into a sync failure.
+  # The ignore list is NOT optional — OpenShift creates service accounts,
+  # dockercfg secrets, RoleBindings and a service-CA ConfigMap in every
+  # namespace; without these entries every namespace reports 6+ orphans on
+  # day one and the signal is worthless.
+  orphanedResources:
+    warn: true
+    ignore:
+      # Kubernetes auto-generated
+      - group: ''
+        kind: Endpoints
+      - group: discovery.k8s.io
+        kind: EndpointSlice
+      - group: ''
+        kind: Event
+      - group: events.k8s.io
+        kind: Event
+      - group: ''
+        kind: Pod
+      - group: apps
+        kind: ReplicaSet
+      - group: apps
+        kind: ControllerRevision
+      - group: ''
+        kind: ConfigMap
+        name: kube-root-ca.crt
+      # OpenShift auto-generated — without these the demo drowns in noise
+      - group: ''
+        kind: ConfigMap
+        name: openshift-service-ca.crt
+      - group: ''
+        kind: ServiceAccount
+        name: default
+      - group: ''
+        kind: ServiceAccount
+        name: builder
+      - group: ''
+        kind: ServiceAccount
+        name: deployer
+      - group: ''
+        kind: Secret
+        name: 'builder-dockercfg-*'
+      - group: ''
+        kind: Secret
+        name: 'deployer-dockercfg-*'
+      - group: ''
+        kind: Secret
+        name: 'default-dockercfg-*'
+      - group: rbac.authorization.k8s.io
+        kind: RoleBinding
+        name: 'system:*'
+      # Option B artifact: the argocd.argoproj.io/managed-by label makes the
+      # GitOps operator create per-namespace RBAC (Role + RoleBinding for the
+      # instance's application-controller and server) in every managed
+      # namespace. Auto-generated, not declared in git — ignore or every
+      # namespace reports four orphans.
+      - group: rbac.authorization.k8s.io
+        kind: Role
+        name: 'gitops-demo-argocd-*'
+      - group: rbac.authorization.k8s.io
+        kind: RoleBinding
+        name: 'gitops-demo-argocd-*'

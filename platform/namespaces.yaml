@@ -1,0 +1,95 @@
+# platform/namespaces.yaml
+#
+# Pre-created namespaces for the demo (Option B: dedicated NAMESPACE-SCOPED
+# Argo CD instance). A namespace-scoped instance cannot create namespaces, so
+# CreateNamespace=true is not available; instead every target namespace is
+# declared here with the argocd.argoproj.io/managed-by label, which makes the
+# GitOps operator grant the instance RBAC in that namespace — the same
+# mechanism the cluster's workshop instance uses for its team namespaces.
+#
+# gitops-demo-fulfilment is pre-created even though services/fulfilment does
+# not exist yet: it is the "ninth service" added live in beat 1, and having the
+# namespace ready means the live moment needs only a git push.
+#
+# Webinar talking point: namespace provisioning is platform-owned; service
+# onboarding is a directory.
+---
+# Home of the demo Argo CD instance itself (no managed-by label needed here).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-argocd
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-checkout
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-payments
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-inventory
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-notifications
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-search
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-recommendations
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-shipping
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-accounts
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-fulfilment
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+    argocd.argoproj.io/managed-by: gitops-demo-argocd

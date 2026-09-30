@@ -1,0 +1,182 @@
+# platform/gitlab.yaml
+#
+# In-cluster GitLab CE for the MR beats (decided 2026-08-20): real protected
+# main, real Approve click via a second local user, and in-cluster webhooks
+# so the ApplicationSet reacts in seconds instead of the 3-minute poll.
+#
+# Deployed directly with oc apply (NOT via Argo CD — GitLab is the Git server
+# the Argo CD instance will read from; chicken-and-egg).
+#
+# Approved exception (user, 2026-08-20): the gitlab ServiceAccount gets the
+# anyuid SCC via the namespaced RoleBinding below — the Omnibus image cannot
+# run under restricted-v2. Scoped to this one SA in this one namespace;
+# removed at teardown with the namespace.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-demo-gitlab
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab
+  namespace: gitops-demo-gitlab
+---
+# Grants the anyuid SCC (pre-existing ClusterRole created by OpenShift) to
+# the gitlab SA. Namespaced object — no cluster-scoped resource is created.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitlab-anyuid
+  namespace: gitops-demo-gitlab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: gitlab
+    namespace: gitops-demo-gitlab
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-data
+  namespace: gitops-demo-gitlab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+  # no storageClassName: the cluster default (gp3-csi on the sandbox,
+  # thin-csi on the old lab); both WaitForFirstConsumer + expandable
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+  namespace: gitops-demo-gitlab
+  labels:
+    app: gitlab
+spec:
+  replicas: 1
+  # single RWO PVC — never let a rolling update run two pods at once
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      serviceAccountName: gitlab
+      containers:
+        - name: gitlab
+          image: docker.io/gitlab/gitlab-ce:latest
+          env:
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: |
+                external_url 'https://gitlab-gitops-demo-gitlab.apps.ocp.tt95r.sandbox1653.opentlc.com'
+                # TLS terminates at the route (edge); nginx serves plain HTTP
+                nginx['listen_port'] = 80
+                nginx['listen_https'] = false
+                # health endpoints must answer the kubelet probes (default
+                # allowlist is 127.0.0.0/8 which 403s them)
+                gitlab_rails['monitoring_whitelist'] = ['0.0.0.0/0']
+                # single lean pod — the demo needs none of these
+                prometheus_monitoring['enable'] = false
+                gitlab_rails['registry_enabled'] = false
+                gitlab_kas['enable'] = false
+                # modest footprint to fit the 4Gi request
+                puma['worker_processes'] = 2
+                sidekiq['concurrency'] = 5
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: 500m
+              # steady-state usage measured at ~3.9Gi (2026-08-20): keep the
+              # request ABOVE usage so node memory pressure never picks this
+              # pod for eviction mid-demo
+              memory: 5Gi
+            limits:
+              memory: 8Gi
+          volumeMounts:
+            # one PVC, two subPaths: /etc/gitlab holds secrets + the
+            # auto-generated initial_root_password and MUST persist too
+            - name: data
+              mountPath: /var/opt/gitlab
+              subPath: data
+            - name: data
+              mountPath: /etc/gitlab
+              subPath: config
+            - name: logs
+              mountPath: /var/log/gitlab
+          # first boot runs a full omnibus reconfigure — allow up to 15 min
+          startupProbe:
+            httpGet:
+              path: /-/readiness
+              port: 80
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /-/readiness
+              port: 80
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /-/liveness
+              port: 80
+            periodSeconds: 30
+            failureThreshold: 6
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gitlab-data
+        - name: logs
+          # logs land on the NODE's disk — cap them so a pathological log
+          # flood cannot pressure the shared node. Omnibus logrotate keeps
+          # normal volume in the low hundreds of MB, so 4Gi never triggers
+          # in sane operation.
+          emptyDir:
+            sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab
+  namespace: gitops-demo-gitlab
+  labels:
+    app: gitlab
+spec:
+  selector:
+    app: gitlab
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: gitlab
+  namespace: gitops-demo-gitlab
+  labels:
+    app: gitlab
+spec:
+  host: gitlab-gitops-demo-gitlab.apps.ocp.tt95r.sandbox1653.opentlc.com
+  to:
+    kind: Service
+    name: gitlab
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

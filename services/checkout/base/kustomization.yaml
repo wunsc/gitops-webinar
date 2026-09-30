@@ -1,0 +1,9 @@
+# services/checkout/base/kustomization.yaml
+# Workload shape only — no namespace, no environment values.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - configmap-content.yaml

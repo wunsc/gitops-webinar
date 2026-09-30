@@ -1,0 +1,174 @@
+# platform/monitoring.yaml
+#
+# Beat 2's closing upgraded from "here is the metric" to "here is the graph,
+# the alert, and both are GitOps-managed". Three namespaced objects, all in
+# gitops-demo-argocd, all reversible with the namespace:
+#
+#   ServiceMonitor   -> user-workload Prometheus scrapes the Argo CD
+#                       application-controller metrics (enableUserWorkload
+#                       is already true on this cluster)
+#   PrometheusRule   -> OrphanedResourceDetected fires when any application
+#                       reports an undeclared resource
+#   PersesDashboard  -> rendered by the Cluster Observability Operator's
+#                       Perses in the OpenShift console (Observe ->
+#                       Dashboards). References the shared platform
+#                       datasource `thanos-querier-datasource`, declared in
+#                       platform/operators.yaml (on the old lab this was the
+#                       obs workshop's shared `obslab-thanos`). If it ever
+#                       disappears, the fallback is the console's
+#                       Observe -> Metrics query page — demo-prep.sh warns.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gitops-demo-argocd-metrics
+  namespace: gitops-demo-argocd
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitops-demo-metrics
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gitops-demo-coverage
+  namespace: gitops-demo-argocd
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+spec:
+  groups:
+    - name: gitops-demo.coverage
+      rules:
+        - alert: OrphanedResourceDetected
+          # >0 orphans on any application = something exists in the
+          # namespace that nobody declared in git.
+          expr: argocd_app_orphaned_resources_count{namespace="gitops-demo-argocd"} > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Undeclared resource in {{ $labels.name }}"
+            description: >-
+              Application {{ $labels.name }} reports {{ $value }} orphaned
+              resource(s): live objects in its namespace that no one declared
+              in git. Continuous coverage checking caught this; nobody ran an
+              audit.
+---
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: gitops-demo-coverage
+  namespace: gitops-demo-argocd
+  labels:
+    app.kubernetes.io/part-of: gitops-webinar-demo
+spec:
+  # binds the dashboard to the operator's Perses instance (same selector the
+  # platform datasources use)
+  instanceSelector:
+    matchLabels:
+      app.kubernetes.io/name: perses
+  config:
+    display:
+      name: "GitOps Coverage — gitops-demo"
+      description: "Continuous coverage checking for the webinar demo fleet: undeclared (orphaned) resources and sync drift, straight from the reconciliation loop."
+    duration: 1h
+    panels:
+      orphansNow:
+        kind: Panel
+        spec:
+          display:
+            name: "Undeclared resources right now"
+            description: "Sum of orphaned resources across all demo applications. Zero is the healthy state; anything else is something nobody declared in git."
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier-datasource
+                    query: sum(argocd_app_orphaned_resources_count{namespace="gitops-demo-argocd"}) OR on() vector(0)
+      appsOutOfSync:
+        kind: Panel
+        spec:
+          display:
+            name: "Applications not Synced"
+            description: "Fleet-level drift: applications whose live state differs from git."
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier-datasource
+                    query: count(argocd_app_info{namespace="gitops-demo-argocd",sync_status!="Synced"}) OR on() vector(0)
+      orphansPerApp:
+        kind: Panel
+        spec:
+          display:
+            name: "Orphaned resources per application"
+            description: "The moment an undeclared object appears, its application's line steps up — the audit that runs every 30 seconds."
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier-datasource
+                    query: argocd_app_orphaned_resources_count{namespace="gitops-demo-argocd"}
+                    seriesNameFormat: "{{name}}"
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: "Coverage at a glance"
+            collapse:
+              open: true
+          items:
+            - x: 0
+              y: 0
+              width: 6
+              height: 6
+              content:
+                $ref: "#/spec/panels/orphansNow"
+            - x: 6
+              y: 0
+              width: 6
+              height: 6
+              content:
+                $ref: "#/spec/panels/appsOutOfSync"
+            - x: 12
+              y: 0
+              width: 12
+              height: 6
+              content:
+                $ref: "#/spec/panels/orphansPerApp"

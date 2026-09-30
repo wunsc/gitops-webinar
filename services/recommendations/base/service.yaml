@@ -1,0 +1,14 @@
+# services/recommendations/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendations
+  labels:
+    app: recommendations
+spec:
+  selector:
+    app: recommendations
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

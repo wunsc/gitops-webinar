@@ -1,0 +1,137 @@
+# platform/operators.yaml
+#
+# Cluster prerequisites for the demo, declared so a rebuild on a fresh cluster
+# is one apply (first used 2026-09-17 on the OpenTLC sandbox ocp.tt95r). All
+# three are CLUSTER-LEVEL changes and were approved by the user before apply:
+#   1. OpenShift GitOps operator (channel latest = 1.21.x, Argo CD 3.4) with
+#      the default cluster-scoped instance DISABLED: the demo brings its own
+#      namespace-scoped instance (platform/argocd.yaml), as on the old lab.
+#   2. User workload monitoring, so the ServiceMonitor + PrometheusRule in
+#      platform/monitoring.yaml are scraped and OrphanedResourceDetected fires.
+#   3. Cluster Observability Operator, whose Perses renders the coverage
+#      dashboard in the console (Observe -> Dashboards).
+# Never apply this on a shared cluster without reading the build guardrails.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-gitops-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-gitops-operator
+  namespace: openshift-gitops-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-gitops-operator
+  namespace: openshift-gitops-operator
+spec:
+  channel: latest
+  installPlanApproval: Automatic
+  name: openshift-gitops-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  config:
+    env:
+      - name: DISABLE_DEFAULT_ARGOCD_INSTANCE
+        value: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+data:
+  config.yaml: |
+    enableUserWorkload: true
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-cluster-observability-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: cluster-observability-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+# Console plugin: adds Observe -> Dashboards (Perses) and creates the Perses
+# instance the coverage dashboard (platform/monitoring.yaml) binds to.
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: monitoring
+spec:
+  type: Monitoring
+  monitoring:
+    perses:
+      enabled: true
+---
+# Read-only platform-metrics access for the plugin's Perses service account,
+# so the datasource below can query Thanos Querier. Cluster-scoped RBAC:
+# the USER applies this (oc apply -f platform/operators.yaml); agents are
+# blocked from granting permissions by policy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: perses-cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: perses-sa
+    namespace: openshift-cluster-observability-operator
+---
+# Global datasource the coverage dashboard queries. The Perses operator
+# generates the Perses secret named <datasource>-secret from the client
+# block: Kubernetes-native auth (the pod's service account token) plus the
+# service CA for Thanos Querier's TLS.
+apiVersion: perses.dev/v1alpha2
+kind: PersesGlobalDatasource
+metadata:
+  name: thanos-querier-datasource
+spec:
+  config:
+    display:
+      name: "Thanos Querier"
+    default: true
+    plugin:
+      kind: PrometheusDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+            secret: thanos-querier-datasource-secret
+  client:
+    kubernetesAuth:
+      enable: true
+    tls:
+      enable: true
+      caCert:
+        type: file
+        certPath: /ca/service-ca.crt

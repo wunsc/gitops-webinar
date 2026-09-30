@@ -1,0 +1,48 @@
+# platform/applicationset.yaml
+#
+# Beat 1: onboarding a service is a directory. The git directory generator
+# turns every services/* directory into an Application — nobody writes
+# Applications by hand, so coverage stops depending on someone remembering to.
+#
+# goTemplate syntax: correct for the Argo CD v3.4.5 this cluster's operator
+# ships (verified in Phase 0).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gitops-demo-services
+  namespace: gitops-demo-argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: 'https://gitlab-gitops-demo-gitlab.apps.ocp.tt95r.sandbox1653.opentlc.com/root/gitops-webinar-demo.git'
+        revision: main
+        directories:
+          # base+overlay convention: the generator points at the overlay, so
+          # an Application exists per service per environment. One overlay in
+          # this demo; production repos list one path per environment here.
+          - path: services/*/overlays/production
+  template:
+    metadata:
+      # path.segments of services/<name>/overlays/production — index 1 is the
+      # service name, keeping Application names identical to the flat layout.
+      name: '{{index .path.segments 1}}'
+    spec:
+      project: gitops-demo
+      source:
+        repoURL: 'https://gitlab-gitops-demo-gitlab.apps.ocp.tt95r.sandbox1653.opentlc.com/root/gitops-webinar-demo.git'
+        targetRevision: main
+        path: '{{.path.path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        # MUST be explicit: orphanedResources + an ApplicationSet with an
+        # undefined destination namespace is a known Argo CD UI-freeze combo.
+        # Also required so each app lands in its pre-created, managed-by
+        # labeled namespace (Option B: no CreateNamespace, the instance is
+        # namespace-scoped and cannot create namespaces).
+        namespace: 'gitops-demo-{{index .path.segments 1}}'
+      # NO automated sync, NO CreateNamespace. Manual sync is intentional:
+      # the session argues keeping the sync decision human is a legitimate
+      # design choice, and auto-sync would silently repair the drift that
+      # beat 4 needs to show.

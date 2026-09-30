@@ -1,0 +1,13 @@
+# services/notifications/overlays/production/kustomization.yaml
+# One overlay per environment; the demo carries one environment.
+# The Application generator points HERE (services/*/overlays/production).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace is pre-created by platform/namespaces.yaml with the
+# argocd.argoproj.io/managed-by label (namespace-scoped Argo CD instance).
+namespace: gitops-demo-notifications
+
+resources:
+  - ../../base
+  - configmap-env.yaml

@@ -1,0 +1,15 @@
+# services/payments/overlays/production/configmap-env.yaml
+# Environment configuration lives in the overlay (repo convention):
+# the base describes the workload, the overlay describes this environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payments-env
+  labels:
+    app: payments
+data:
+  SERVICE_NAME: "payments"
+  # DB_POOL_MAX is the value the revert demo (beat 4) changes and reverts.
+  # It lives here, not in the Deployment, so the git diff stays one line.
+  DB_POOL_MAX: "25"
+  LOG_LEVEL: "info"

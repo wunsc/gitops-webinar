@@ -1,0 +1,13 @@
+# services/notifications/base/configmap-content.yaml
+# Static content served by httpd. Without an index.html the ubi9/httpd-24
+# image answers / with the Apache welcome page and HTTP 403, which would
+# fail the probes below and show the app Degraded in Argo CD.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notifications-content
+  labels:
+    app: notifications
+data:
+  index.html: |
+    <html><body><h1>notifications</h1><p>gitops-webinar-demo service</p></body></html>
